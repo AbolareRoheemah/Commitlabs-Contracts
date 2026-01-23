@@ -1,45 +1,46 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, Env, String,
-};
+use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String};
 
-// Helper function to create a test commitment in storage
+// Helper function to create a test commitment
 fn create_test_commitment(
     e: &Env,
-    contract_id: &Address,
-    commitment_id: String,
-    owner: Address,
-    initial_value: i128,
+    commitment_id: &str,
+    owner: &Address,
+    amount: i128,
     current_value: i128,
     max_loss_percent: u32,
-) {
-    let rules = CommitmentRules {
-        duration_days: 365,
-        max_loss_percent,
-        commitment_type: String::from_str(e, "balanced"),
-        early_exit_penalty: 10,
-        min_fee_threshold: 1000,
-    };
-
-    let commitment = Commitment {
-        commitment_id: commitment_id.clone(),
-        owner,
+    duration_days: u32,
+    created_at: u64,
+) -> Commitment {
+    let expires_at = created_at + (duration_days as u64 * 86400); // days to seconds
+    
+    Commitment {
+        commitment_id: String::from_str(e, commitment_id),
+        owner: owner.clone(),
         nft_token_id: 1,
-        rules,
-        amount: initial_value,
+        rules: CommitmentRules {
+            duration_days,
+            max_loss_percent,
+            commitment_type: String::from_str(e, "balanced"),
+            early_exit_penalty: 10,
+            min_fee_threshold: 1000,
+        },
+        amount,
         asset_address: Address::generate(e),
-        created_at: 1000,
-        expires_at: 1000 + (365 * 24 * 60 * 60),
+        created_at,
+        expires_at,
         current_value,
         status: String::from_str(e, "active"),
-    };
+    }
+}
 
-    let key = DataKey::Commitment(commitment_id);
+// Helper to store a commitment for testing using DataKey
+fn store_commitment(e: &Env, contract_id: &Address, commitment: &Commitment) {
     e.as_contract(contract_id, || {
-        e.storage().persistent().set(&key, &commitment);
+        let key = DataKey::Commitment(commitment.commitment_id.clone());
+        e.storage().persistent().set(&key, commitment);
     });
 }
 
@@ -71,11 +72,24 @@ fn test_value_update_success() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment
-    let commitment_id = String::from_str(&e, "commit_1");
+    let commitment_id_str = "commit_1";
     let owner = Address::generate(&e);
     let initial_value = 10000;
     let current_value = 10000;
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, initial_value, current_value, 20);
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Add authorized updater
     let updater = Address::generate(&e);
@@ -83,6 +97,7 @@ fn test_value_update_success() {
     client.add_authorized_updater(&admin, &updater);
 
     // Update value
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 9500; // 5% loss, within 20% limit
     e.mock_all_auths();
     client.update_value(&updater, &commitment_id, &new_value);
@@ -90,7 +105,7 @@ fn test_value_update_success() {
     // Verify value was updated
     let commitment = client.get_commitment(&commitment_id);
     assert_eq!(commitment.current_value, new_value);
-    assert_eq!(commitment.status, String::from_str(&e, "active")); // Should still be active
+    assert_eq!(commitment.status, String::from_str(&e, "active"));
 }
 
 #[test]
@@ -105,12 +120,24 @@ fn test_violation_detection() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment with 20% max loss
-    let commitment_id = String::from_str(&e, "commit_2");
+    let commitment_id_str = "commit_2";
     let owner = Address::generate(&e);
     let initial_value = 10000;
     let current_value = 10000;
     let max_loss_percent = 20;
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, initial_value, current_value, max_loss_percent);
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Add authorized updater
     let updater = Address::generate(&e);
@@ -118,6 +145,7 @@ fn test_violation_detection() {
     client.add_authorized_updater(&admin, &updater);
 
     // Update value to trigger violation (25% loss exceeds 20% limit)
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 7500; // 25% loss
     e.mock_all_auths();
     client.update_value(&updater, &commitment_id, &new_value);
@@ -140,27 +168,40 @@ fn test_violation_at_threshold() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment with 20% max loss
-    let commitment_id = String::from_str(&e, "commit_3");
+    let commitment_id_str = "commit_3";
     let owner = Address::generate(&e);
     let initial_value = 10000;
     let current_value = 10000;
     let max_loss_percent = 20;
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, initial_value, current_value, max_loss_percent);
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Add authorized updater
     let updater = Address::generate(&e);
     e.mock_all_auths();
     client.add_authorized_updater(&admin, &updater);
 
-    // Update value to exactly 20% loss (should NOT violate, since violation is > not >=)
+    // Update value to exactly 20% loss (should NOT violate)
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 8000; // Exactly 20% loss
     e.mock_all_auths();
     client.update_value(&updater, &commitment_id, &new_value);
 
-    // Verify no violation (since drawdown > max_loss, and 20% is not > 20%)
+    // Verify no violation
     let commitment = client.get_commitment(&commitment_id);
     assert_eq!(commitment.current_value, new_value);
-    assert_eq!(commitment.status, String::from_str(&e, "active")); // Should still be active
+    assert_eq!(commitment.status, String::from_str(&e, "active"));
 }
 
 #[test]
@@ -176,11 +217,27 @@ fn test_access_control_unauthorized() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment
-    let commitment_id = String::from_str(&e, "commit_4");
+    let commitment_id_str = "commit_4";
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 10000, 10000, 20);
+    let initial_value = 10000;
+    let current_value = 10000;
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Try to update with unauthorized caller
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let unauthorized = Address::generate(&e);
     e.mock_all_auths();
     client.update_value(&unauthorized, &commitment_id, &9500);
@@ -198,11 +255,27 @@ fn test_access_control_admin() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment
-    let commitment_id = String::from_str(&e, "commit_5");
+    let commitment_id_str = "commit_5";
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 10000, 10000, 20);
+    let initial_value = 10000;
+    let current_value = 10000;
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Admin should be able to update without being added to whitelist
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 9500;
     e.mock_all_auths();
     client.update_value(&admin, &commitment_id, &new_value);
@@ -224,9 +297,24 @@ fn test_add_remove_authorized_updater() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment
-    let commitment_id = String::from_str(&e, "commit_6");
+    let commitment_id_str = "commit_6";
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 10000, 10000, 20);
+    let initial_value = 10000;
+    let current_value = 10000;
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Add authorized updater
     let updater = Address::generate(&e);
@@ -234,6 +322,7 @@ fn test_add_remove_authorized_updater() {
     client.add_authorized_updater(&admin, &updater);
 
     // Verify updater can update
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 9500;
     e.mock_all_auths();
     client.update_value(&updater, &commitment_id, &new_value);
@@ -277,10 +366,10 @@ fn test_update_non_active_commitment() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment with violated status
-    let commitment_id = String::from_str(&e, "commit_7");
+    let commitment_id_str = "commit_7";
     let owner = Address::generate(&e);
     let commitment = Commitment {
-        commitment_id: commitment_id.clone(),
+        commitment_id: String::from_str(&e, commitment_id_str),
         owner,
         nft_token_id: 1,
         rules: CommitmentRules {
@@ -293,17 +382,15 @@ fn test_update_non_active_commitment() {
         amount: 10000,
         asset_address: Address::generate(&e),
         created_at: 1000,
-        expires_at: 1000 + (365 * 24 * 60 * 60),
+        expires_at: 1000 + (365 * 86400),
         current_value: 7500,
-        status: String::from_str(&e, "violated"), // Already violated
+        status: String::from_str(&e, "violated"),
     };
 
-    let key = DataKey::Commitment(commitment_id.clone());
-    e.as_contract(&contract_id, || {
-        e.storage().persistent().set(&key, &commitment);
-    });
+    store_commitment(&e, &contract_id, &commitment);
 
     // Try to update violated commitment
+    let commitment_id = String::from_str(&e, commitment_id_str);
     e.mock_all_auths();
     client.update_value(&admin, &commitment_id, &8000);
 }
@@ -320,11 +407,27 @@ fn test_edge_case_zero_initial_value() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment with zero initial value
-    let commitment_id = String::from_str(&e, "commit_8");
+    let commitment_id_str = "commit_8";
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 0, 0, 20);
+    let initial_value = 0;
+    let current_value = 0;
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Update value - should not panic even with zero initial value
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 1000;
     e.mock_all_auths();
     client.update_value(&admin, &commitment_id, &new_value);
@@ -332,7 +435,6 @@ fn test_edge_case_zero_initial_value() {
     // Verify value was updated
     let commitment = client.get_commitment(&commitment_id);
     assert_eq!(commitment.current_value, new_value);
-    // Should not be marked as violated (edge case handled)
     assert_eq!(commitment.status, String::from_str(&e, "active"));
 }
 
@@ -353,11 +455,27 @@ fn test_edge_case_negative_drawdown() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment
-    let commitment_id = String::from_str(&e, "commit_9");
+    let commitment_id_str = "commit_9";
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 10000, 10000, 20);
+    let initial_value = 10000;
+    let current_value = 10000;
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Update value to be higher than initial (gain, not loss)
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 12000; // 20% gain
     e.mock_all_auths();
     client.update_value(&admin, &commitment_id, &new_value);
@@ -398,11 +516,27 @@ fn test_check_violations() {
     client.initialize(&admin, &nft_contract);
 
     // Create test commitment with violation
-    let commitment_id = String::from_str(&e, "commit_10");
+    let commitment_id_str = "commit_10";
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 10000, 7500, 20); // 25% loss
+    let initial_value = 10000;
+    let current_value = 7500;
+    let max_loss_percent = 20;
+    let duration_days = 365;
+    let created_at = 1000;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        initial_value,
+        current_value,
+        max_loss_percent,
+        duration_days,
+        created_at,
+    );
+    store_commitment(&e, &contract_id, &commitment);
 
     // Check violations
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let has_violations = client.check_violations(&commitment_id);
     assert!(has_violations);
 }
@@ -413,23 +547,416 @@ fn test_settle() {
 }
 
 #[test]
-fn test_check_violations_no_violation() {
+fn test_check_violations_no_violations() {
     let e = Env::default();
-    let admin = Address::generate(&e);
-    let nft_contract = Address::generate(&e);
     let contract_id = e.register_contract(None, CommitmentCoreContract);
     let client = CommitmentCoreContractClient::new(&e, &contract_id);
-
-    // Initialize
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
     client.initialize(&admin, &nft_contract);
-
-    // Create test commitment without violation
-    let commitment_id = String::from_str(&e, "commit_11");
+    
     let owner = Address::generate(&e);
-    create_test_commitment(&e, &contract_id, commitment_id.clone(), owner, 10000, 9500, 20); // 5% loss
-
-    // Check violations
+    let commitment_id_str = "test_commitment_1";
+    
+    // Create a commitment with no violations
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        950, // 5% loss
+        10,  // max 10% loss allowed
+        30,  // 30 days duration
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set ledger time to 15 days later (halfway through)
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (15 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
     let has_violations = client.check_violations(&commitment_id);
-    assert!(!has_violations);
+    
+    assert!(!has_violations, "Should not have violations");
 }
 
+#[test]
+fn test_check_violations_loss_limit_exceeded() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_2";
+    
+    // Create a commitment with loss limit violation
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        850, // 15% loss - exceeds 10% limit
+        10,  // max 10% loss allowed
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set ledger time to 5 days later (still within duration)
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (5 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let has_violations = client.check_violations(&commitment_id);
+    
+    assert!(has_violations, "Should have loss limit violation");
+}
+
+#[test]
+fn test_check_violations_duration_expired() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_3";
+    
+    // Create a commitment that has expired
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        980, // 2% loss - within limit
+        10,  // max 10% loss allowed
+        30,  // 30 days duration
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set ledger time to 31 days later (expired)
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (31 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let has_violations = client.check_violations(&commitment_id);
+    
+    assert!(has_violations, "Should have duration violation");
+}
+
+#[test]
+fn test_check_violations_both_violations() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_4";
+    
+    // Create a commitment with both violations
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        800, // 20% loss - exceeds limit
+        10,  // max 10% loss allowed
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set ledger time to 31 days later (expired)
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (31 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let has_violations = client.check_violations(&commitment_id);
+    
+    assert!(has_violations, "Should have both violations");
+}
+
+#[test]
+fn test_get_violation_details_no_violations() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_5";
+    
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        950, // 5% loss
+        10,  // max 10% loss
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set ledger time to 15 days later
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (15 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let (has_violations, loss_violated, duration_violated, loss_percent, time_remaining) = 
+        client.get_violation_details(&commitment_id);
+    
+    assert!(!has_violations, "Should not have violations");
+    assert!(!loss_violated, "Loss should not be violated");
+    assert!(!duration_violated, "Duration should not be violated");
+    assert_eq!(loss_percent, 5, "Loss percent should be 5%");
+    assert!(time_remaining > 0, "Time should remain");
+}
+
+#[test]
+fn test_get_violation_details_loss_violation() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_6";
+    
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        850, // 15% loss - exceeds 10%
+        10,
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (10 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let (has_violations, loss_violated, duration_violated, loss_percent, _time_remaining) = 
+        client.get_violation_details(&commitment_id);
+    
+    assert!(has_violations, "Should have violations");
+    assert!(loss_violated, "Loss should be violated");
+    assert!(!duration_violated, "Duration should not be violated");
+    assert_eq!(loss_percent, 15, "Loss percent should be 15%");
+}
+
+#[test]
+fn test_get_violation_details_duration_violation() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_7";
+    
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        980, // 2% loss - within limit
+        10,
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set time to 31 days later (expired)
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (31 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let (has_violations, loss_violated, duration_violated, _loss_percent, time_remaining) = 
+        client.get_violation_details(&commitment_id);
+    
+    assert!(has_violations, "Should have violations");
+    assert!(!loss_violated, "Loss should not be violated");
+    assert!(duration_violated, "Duration should be violated");
+    assert_eq!(time_remaining, 0, "Time remaining should be 0");
+}
+
+#[test]
+#[should_panic(expected = "Commitment not found")]
+fn test_check_violations_not_found() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let commitment_id = String::from_str(&e, "nonexistent");
+    client.check_violations(&commitment_id);
+}
+
+#[test]
+fn test_check_violations_edge_case_exact_loss_limit() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_8";
+    
+    // Test exactly at the loss limit (should not violate)
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        900, // Exactly 10% loss
+        10,  // max 10% loss
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (15 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let has_violations = client.check_violations(&commitment_id);
+    
+    // Exactly at limit should not violate (uses > not >=)
+    assert!(!has_violations, "Exactly at limit should not violate");
+}
+
+#[test]
+fn test_check_violations_edge_case_exact_expiry() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_9";
+    
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        950,
+        10,
+        30,
+        created_at,
+    );
+    
+    let expires_at = commitment.expires_at;
+    store_commitment(&e, &contract_id, &commitment);
+    
+    // Set time to exactly expires_at
+    e.ledger().with_mut(|l| {
+        l.timestamp = expires_at;
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let has_violations = client.check_violations(&commitment_id);
+    
+    // At expiry time, should be violated (uses >=)
+    assert!(has_violations, "At expiry time should violate");
+}
+
+#[test]
+fn test_check_violations_zero_amount() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, CommitmentCoreContract);
+    let client = CommitmentCoreContractClient::new(&e, &contract_id);
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    
+    client.initialize(&admin, &nft_contract);
+    
+    let owner = Address::generate(&e);
+    let commitment_id_str = "test_commitment_10";
+    
+    // Edge case: zero amount (should not cause division by zero)
+    let created_at = 1000u64;
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        0,   // zero amount
+        0,   // zero value
+        10,
+        30,
+        created_at,
+    );
+    
+    store_commitment(&e, &contract_id, &commitment);
+    
+    e.ledger().with_mut(|l| {
+        l.timestamp = created_at + (15 * 86400);
+    });
+    
+    let commitment_id = String::from_str(&e, commitment_id_str);
+    let has_violations = client.check_violations(&commitment_id);
+    
+        // Should not panic and should only check duration
+    assert!(!has_violations, "Zero amount should not cause issues");
+}
