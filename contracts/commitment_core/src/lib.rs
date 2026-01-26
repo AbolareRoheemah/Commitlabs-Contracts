@@ -1,5 +1,8 @@
 #![no_std]
 
+extern crate alloc;
+use alloc::{format, string::ToString};
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, log, token, symbol_short, Address, Env, Map, IntoVal, String,
     Symbol, Vec,
@@ -113,7 +116,7 @@ fn call_nft_mint(
     args.push_back(initial_amount.into_val(e));
     args.push_back(asset_address.clone().into_val(e));
 
-    e.invoke_contract::<u32>(nft_contract, &Symbol::from_str(e, "mint"), args)
+    e.invoke_contract::<u32>(nft_contract, &symbol_short!("mint"), args)
 }
 
 // Storage helpers
@@ -174,11 +177,10 @@ impl CommitmentCoreContract {
             .get::<_, u64>(&DataKey::TotalCommitments)
             .unwrap_or(0);
         // Simple unique ID - for production, use something more robust!
-        let mut prefix = String::from_str(e, "commitment_");
-        prefix.push_u64(counter);
-        prefix
+        let prefix = String::from_str(e, "commitment_");
+        let id_str = format!("{}{}", prefix.to_string(), counter);
+        String::from_str(e, &id_str)
     }
-
     /// Initialize the core commitment contract
     pub fn initialize(e: Env, admin: Address, nft_contract: Address) {
         // Store admin address
@@ -192,13 +194,13 @@ impl CommitmentCoreContract {
 
     /// Check if caller is admin
     fn is_admin(e: &Env, caller: &Address) -> bool {
-        let admin = Self::get_admin(e);
+        let admin = Self::get_admin(e.clone());
         admin == *caller
     }
 
     /// Check if caller is authorized updater
     fn is_authorized_updater(e: &Env, caller: &Address) -> bool {
-        let admin = Self::get_admin(e);
+        let admin = Self::get_admin(e.clone());
         // Admin is always authorized
         if admin == *caller {
             return true;
