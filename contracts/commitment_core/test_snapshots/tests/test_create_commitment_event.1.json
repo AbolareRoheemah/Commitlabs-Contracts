@@ -55,24 +55,24 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "NftContract"
+                              "symbol": "AuthorizedUpdaters"
                             }
                           ]
                         },
                         "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                          "map": []
                         }
                       },
                       {
                         "key": {
                           "vec": [
                             {
-                              "symbol": "TotalCommitments"
+                              "symbol": "NftContract"
                             }
                           ]
                         },
                         "val": {
-                          "u64": 0
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         }
                       }
                     ]

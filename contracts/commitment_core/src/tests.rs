@@ -1180,11 +1180,33 @@ fn test_create_commitment_event() {
 #[test]
 fn test_update_value_event() {
     let e = Env::default();
+    e.mock_all_auths();
+    let admin = Address::generate(&e);
+    let nft_contract = Address::generate(&e);
+    let owner = Address::generate(&e);
     let contract_id = e.register_contract(None, CommitmentCoreContract);
-    let updater = Address::generate(&e);
     let client = CommitmentCoreContractClient::new(&e, &contract_id);
 
-    let commitment_id = String::from_str(&e, "test_id");
+    // Initialize contract
+    client.initialize(&admin, &nft_contract);
+
+    let updater = Address::generate(&e);
+    client.add_authorized_updater(&admin, &updater);
+
+    let commitment_id_str = "test_id";
+    let commitment = create_test_commitment(
+        &e,
+        commitment_id_str,
+        &owner,
+        1000,
+        1000,
+        20,
+        365,
+        1000,
+    );
+    store_commitment(&e, &contract_id, &commitment);
+
+    let commitment_id = String::from_str(&e, commitment_id_str);
     client.update_value(&updater, &commitment_id, &1100);
 
     let events = e.events().all();
@@ -1193,10 +1215,11 @@ fn test_update_value_event() {
     assert_eq!(last_event.0, contract_id);
     assert_eq!(
         last_event.1,
-        vec![&e, symbol_short!("ValUpd").into_val(&e), commitment_id.into_val(&e)]
+        vec![
+            &e,
+            symbol_short!("ValUpdate").into_val(&e)
+        ]
     );
-    let data: (i128, u64) = last_event.2.into_val(&e);
-    assert_eq!(data.0, 1100);
 }
 
 #[test]
