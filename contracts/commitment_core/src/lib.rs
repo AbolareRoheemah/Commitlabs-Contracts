@@ -143,7 +143,6 @@ fn require_no_reentrancy(e: &Env) {
         .instance()
         .get::<_, bool>(&DataKey::ReentrancyGuard)
         .unwrap_or(false);
-
     if guard {
         panic!("Reentrancy detected");
     }
@@ -736,7 +735,7 @@ impl CommitmentCoreContract {
                 set_reentrancy_guard(&e, false);
                 panic!("NFT contract not initialized")
             });
-
+        
         let mut args = Vec::new(&e);
         args.push_back(commitment.nft_token_id.into_val(&e));
         e.invoke_contract::<()>(&nft_contract, &Symbol::new(&e, "settle"), args);
