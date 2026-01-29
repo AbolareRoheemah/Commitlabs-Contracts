@@ -133,7 +133,7 @@ fn test_value_update_success() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 9500; // 5% loss, within 20% limit
     e.mock_all_auths();
-    client.update_value(&updater, &commitment_id, &new_value);
+    client.update_value_authorized(&updater, &commitment_id, &new_value);
 
     // Verify value was updated
     let commitment = client.get_commitment(&commitment_id);
@@ -181,7 +181,7 @@ fn test_violation_detection() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 7500; // 25% loss
     e.mock_all_auths();
-    client.update_value(&updater, &commitment_id, &new_value);
+    client.update_value_authorized(&updater, &commitment_id, &new_value);
 
     // Verify violation was detected
     let commitment = client.get_commitment(&commitment_id);
@@ -229,7 +229,7 @@ fn test_violation_at_threshold() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 8000; // Exactly 20% loss
     e.mock_all_auths();
-    client.update_value(&updater, &commitment_id, &new_value);
+    client.update_value_authorized(&updater, &commitment_id, &new_value);
 
     // Verify no violation
     let commitment = client.get_commitment(&commitment_id);
@@ -273,7 +273,7 @@ fn test_access_control_unauthorized() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let unauthorized = Address::generate(&e);
     e.mock_all_auths();
-    client.update_value(&unauthorized, &commitment_id, &9500);
+    client.update_value_authorized(&unauthorized, &commitment_id, &9500);
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn test_access_control_admin() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 9500;
     e.mock_all_auths();
-    client.update_value(&admin, &commitment_id, &new_value);
+    client.update_value_authorized(&admin, &commitment_id, &new_value);
 
     // Verify update succeeded
     let commitment = client.get_commitment(&commitment_id);
@@ -358,7 +358,7 @@ fn test_add_remove_authorized_updater() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 9500;
     e.mock_all_auths();
-    client.update_value(&updater, &commitment_id, &new_value);
+    client.update_value_authorized(&updater, &commitment_id, &new_value);
     let commitment = client.get_commitment(&commitment_id);
     assert_eq!(commitment.current_value, new_value);
 
@@ -425,7 +425,7 @@ fn test_update_non_active_commitment() {
     // Try to update violated commitment
     let commitment_id = String::from_str(&e, commitment_id_str);
     e.mock_all_auths();
-    client.update_value(&admin, &commitment_id, &8000);
+    client.update_value_authorized(&admin, &commitment_id, &8000);
 }
 
 #[test]
@@ -463,7 +463,7 @@ fn test_edge_case_zero_initial_value() {
     let commitment_id = String::from_str(&e, commitment_id_str);
     let new_value = 1000;
     e.mock_all_auths();
-    client.update_value(&admin, &commitment_id, &new_value);
+    client.update_value_authorized(&admin, &commitment_id, &new_value);
 
     // Verify value was updated
     let commitment = client.get_commitment(&commitment_id);
@@ -626,7 +626,7 @@ fn test_update_nonexistent_commitment() {
     // Try to update non-existent commitment
     let commitment_id = String::from_str(&e, "nonexistent");
     e.mock_all_auths();
-    client.update_value(&admin, &commitment_id, &9500);
+    client.update_value_authorized(&admin, &commitment_id, &9500);
 }
 
 #[test]
@@ -1196,7 +1196,7 @@ fn test_update_value_event() {
     store_commitment(&e, &contract_id, &commitment);
     e.mock_all_auths();
     client.add_authorized_updater(&admin, &updater);
-    client.update_value(&updater, &commitment_id, &1100);
+    client.update_value_authorized(&updater, &commitment_id, &1100);
 
     let events = e.events().all();
     let last_event = events.last().unwrap();
